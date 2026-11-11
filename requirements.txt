@@ -1,0 +1,16 @@
+# --- runtime ---
+fastapi>=0.115
+uvicorn[standard]>=0.30
+sqlalchemy[asyncio]>=2.0.30
+asyncpg>=0.29          # PostgreSQL driver (production)
+aiosqlite>=0.20        # SQLite driver (local fallback / tests)
+alembic>=1.13
+pydantic[email]>=2.7
+pydantic-settings>=2.3
+PyJWT>=2.8
+passlib[bcrypt]>=1.7.4
+bcrypt==4.0.1          # passlib is incompatible with bcrypt>=4.1
+python-multipart>=0.0.9
+structlog>=24.1
+slowapi>=0.1.9
+redis>=5.0             # shared rate-limit storage when running several workers/replicas

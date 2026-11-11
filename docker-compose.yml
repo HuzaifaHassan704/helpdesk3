@@ -1,0 +1,74 @@
+# Full stack:  SECRET_KEY=$(openssl rand -hex 32) docker compose up --build
+# Only PostgreSQL for local development:  docker compose up -d db
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: helpdesk
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-helpdesk}   # change outside local dev
+      POSTGRES_DB: helpdesk
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U helpdesk -d helpdesk"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    # Shared rate-limit counters, so limits hold across several API workers/replicas.
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  migrate:
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    environment: &app-env
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+asyncpg://helpdesk:${POSTGRES_PASSWORD:-helpdesk}@db:5432/helpdesk
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY (e.g. export SECRET_KEY=$(openssl rand -hex 32))}
+      RATE_LIMIT_STORAGE_URI: redis://redis:6379/0
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-*}
+      ENABLE_DOCS: ${ENABLE_DOCS:-false}
+      LOG_JSON: "true"
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: .
+    environment: *app-env
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request as u; u.urlopen('http://localhost:8000/health/ready', timeout=3)"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  pgdata:

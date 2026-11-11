@@ -1,0 +1,28 @@
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "ASYNC"]
+
+[tool.ruff.lint.per-file-ignores]
+# conftest must set env vars before importing the app; test lines are allowed to be long.
+"tests/*" = ["E402", "E501"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency markers are meant to be called in default arguments.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Security"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "tests", "scripts"]
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+concurrency = ["greenlet", "thread"]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+exclude_lines = ["pragma: no cover", "if __name__ == .__main__.:"]
