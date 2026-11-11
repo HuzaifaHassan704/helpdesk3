@@ -7,13 +7,13 @@ from app.models.enums import TicketPriority, TicketStatus
 
 class TicketCreate(BaseModel):
     title: str = Field(min_length=3, max_length=200)
-    description: str = Field(min_length=1)
+    description: str = Field(min_length=1, max_length=5000)
     priority: TicketPriority = TicketPriority.MEDIUM
 
 
 class TicketUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=3, max_length=200)
-    description: str | None = Field(default=None, min_length=1)
+    description: str | None = Field(default=None, min_length=1, max_length=5000)
     status: TicketStatus | None = None
     priority: TicketPriority | None = None
 

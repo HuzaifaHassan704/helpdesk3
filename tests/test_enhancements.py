@@ -89,7 +89,7 @@ async def test_auto_assign_off_by_default_and_without_agents(client, admin, empl
 def sent(monkeypatch):
     calls = []
 
-    async def fake(to, subject, body):
+    async def fake(to, subject, body, **_):
         calls.append((to, subject))
 
     monkeypatch.setattr(notification_service, "notify", fake)
@@ -246,3 +246,12 @@ async def test_admin_password_reset_invalidates_old_tokens(client, employee, adm
     assert r.status_code == 200
     assert (await client.get("/users/me", headers=old)).status_code == 401
     assert (await login(client, employee.email, "ResetPassword1")).status_code == 200
+
+
+async def test_notification_log_has_user_id_not_email(caplog):
+    import logging
+
+    with caplog.at_level(logging.INFO):
+        await notification_service.notify("secret.person@example.com", "Subject", "body", user_id=42)
+    text = " ".join(r.getMessage() for r in caplog.records)
+    assert "secret.person@example.com" not in text and "42" in text

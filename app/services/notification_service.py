@@ -24,12 +24,15 @@ def _send(to: str, subject: str, body: str) -> None:
         smtp.send_message(msg)
 
 
-async def notify(to: str, subject: str, body: str) -> None:
-    """Email a user. Without SMTP_HOST it only logs, so development needs no mail server. Never raises."""
-    logger.info("notification", to=to, subject=_clean(subject), smtp=bool(settings.SMTP_HOST))
+async def notify(to: str, subject: str, body: str, *, user_id: int | None = None) -> None:
+    """Email a user. Without SMTP_HOST it only logs, so development needs no mail server. Never raises.
+
+    Logs carry the recipient's user ID, never their address.
+    """
+    logger.info("notification", user_id=user_id, subject=_clean(subject), smtp=bool(settings.SMTP_HOST))
     if not settings.SMTP_HOST:
         return
     try:
         await asyncio.to_thread(_send, to, subject, body)
     except Exception:
-        logger.exception("notification_failed", to=to)
+        logger.exception("notification_failed", user_id=user_id)

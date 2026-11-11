@@ -147,3 +147,14 @@ async def test_assign_validation(client, employee, agent, make_user, make_ticket
     assert (await client.post("/tickets/9999/assign", json={}, headers=h)).status_code == 404
     await client.patch(f"/tickets/{t['id']}", json={"status": "closed"}, headers=h)
     assert (await client.post(url, json={}, headers=h)).status_code == 409
+
+
+async def test_description_has_a_maximum_length(client, employee, make_ticket):
+    h = auth(employee)
+    ok = await client.post("/tickets/", json={"title": "Long one", "description": "x" * 5000}, headers=h)
+    assert ok.status_code == 201
+    assert (
+        await client.post("/tickets/", json={"title": "Too long", "description": "x" * 5001}, headers=h)
+    ).status_code == 422
+    r = await client.patch(f"/tickets/{ok.json()['id']}", json={"description": "y" * 5001}, headers=h)
+    assert r.status_code == 422

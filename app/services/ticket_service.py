@@ -115,7 +115,9 @@ async def create_ticket(db: AsyncSession, user: User, data: TicketCreate) -> Tic
     await db.commit()
     await db.refresh(ticket)
     if agent:
-        await notification_service.notify(agent.email, f"Ticket #{ticket.id} assigned to you", ticket.title)
+        await notification_service.notify(
+            agent.email, f"Ticket #{ticket.id} assigned to you", ticket.title, user_id=agent.id
+        )
     return ticket
 
 
@@ -228,7 +230,7 @@ async def update_ticket(db: AsyncSession, ticket: Ticket, user: User, data: Tick
         creator = await db.get(User, ticket.creator_id)
         if creator:
             await notification_service.notify(
-                creator.email, f"Ticket #{ticket.id} is now {ticket.status.value}", ticket.title
+                creator.email, f"Ticket #{ticket.id} is now {ticket.status.value}", ticket.title, user_id=creator.id
             )
     return ticket
 
@@ -248,7 +250,9 @@ async def assign_ticket(db: AsyncSession, ticket: Ticket, acting: User, assignee
     await db.commit()
     await db.refresh(ticket)
     if target.id != acting.id:
-        await notification_service.notify(target.email, f"Ticket #{ticket.id} assigned to you", ticket.title)
+        await notification_service.notify(
+            target.email, f"Ticket #{ticket.id} assigned to you", ticket.title, user_id=target.id
+        )
     return ticket
 
 

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.security import hash_password, verify_password
-from app.models import Comment, LoginAttempt, Ticket, User
+from app.models import Comment, LoginAttempt, Ticket, TicketEvent, TicketStatus, User, UserRole
 from app.models.base import utcnow
 from app.schemas.user import UserCreate, UserUpdate
 
@@ -129,6 +129,26 @@ async def get_or_404(db: AsyncSession, user_id: int) -> User:
     return user
 
 
+async def release_tickets(db: AsyncSession, user: User, acting: User, reason: str) -> int:
+    """Unassign the user's Open / In Progress tickets (In Progress ones go back to Open). Does not commit.
+
+    Resolved and Closed tickets keep their assignee as a record of who handled them.
+    """
+    tickets = await db.scalars(
+        select(Ticket).where(
+            Ticket.assignee_id == user.id, Ticket.status.in_([TicketStatus.OPEN, TicketStatus.IN_PROGRESS])
+        )
+    )
+    count = 0
+    for ticket in tickets:
+        ticket.assignee_id = None
+        if ticket.status == TicketStatus.IN_PROGRESS:
+            ticket.status = TicketStatus.OPEN
+        db.add(TicketEvent(ticket_id=ticket.id, actor_id=acting.id, event="unassigned", detail=reason))
+        count += 1
+    return count
+
+
 async def update_user(db: AsyncSession, user: User, data: UserUpdate, acting: User) -> User:
     changes = data.model_dump(exclude_unset=True)
     if changes.pop("unlock", None):
@@ -138,6 +158,9 @@ async def update_user(db: AsyncSession, user: User, data: UserUpdate, acting: Us
     if "password" in changes:
         user.hashed_password = hash_password(changes.pop("password"))
         user.token_version += 1
+    if changes.get("role") == UserRole.EMPLOYEE and user.role != UserRole.EMPLOYEE:
+        # an employee can neither open nor work on tickets assigned to them, so hand those back to the queue
+        await release_tickets(db, user, acting, "assignee is no longer an agent")
     for field, value in changes.items():
         setattr(user, field, value)
     await db.commit()
@@ -155,6 +178,7 @@ async def delete_user(db: AsyncSession, user: User, acting: User) -> None:
             status.HTTP_409_CONFLICT,
             "User has tickets or comments; deactivate the account instead (PATCH is_active=false)",
         )
-    await db.execute(update(Ticket).where(Ticket.assignee_id == user.id).values(assignee_id=None))
+    await release_tickets(db, user, acting, "assignee account was deleted")
+    await db.execute(update(Ticket).where(Ticket.assignee_id == user.id).values(assignee_id=None))  # resolved/closed
     await db.execute(delete(User).where(User.id == user.id))
     await db.commit()
