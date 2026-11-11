@@ -2,6 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
+from slowapi.util import get_remote_address
 
 from app.core.config import settings
 from app.core.deps import DbSession, OptionalUser
@@ -34,11 +35,11 @@ async def register(request: Request, payload: UserCreate, db: DbSession, current
 @limiter.limit(lambda: settings.RATE_LIMIT_LOGIN)
 async def login(request: Request, form: Annotated[OAuth2PasswordRequestForm, Depends()], db: DbSession):
     """OAuth2 password flow: send `username` (the email) and `password` as form data."""
-    user = await user_service.authenticate(db, form.username, form.password)
+    user = await user_service.authenticate(db, form.username, form.password, get_remote_address(request)[:45])
     if user is None:
         logger.warning("login_failed")  # never log the submitted email/password
         raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED, "Incorrect email or password", headers={"WWW-Authenticate": "Bearer"}
+            status.HTTP_401_UNAUTHORIZED, user_service.INVALID_LOGIN, headers={"WWW-Authenticate": "Bearer"}
         )
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Account is deactivated")

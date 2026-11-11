@@ -3,11 +3,13 @@ import io
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import update
 
+from app.main import app as fastapi_app
 from app.models import Ticket
 from app.models.base import utcnow
-from app.services import notification_service
+from app.services import notification_service, user_service
 from tests.conftest import PASSWORD, auth
 
 
@@ -116,13 +118,46 @@ async def login(client, email, password):
     return await client.post("/auth/login", data={"username": email, "password": password})
 
 
-async def test_account_locks_after_repeated_failures_and_admin_can_unlock(client, employee, admin):
+async def test_repeated_failures_throttle_that_ip_and_email_pair_and_admin_can_unlock(client, employee, admin):
     for _ in range(5):
         assert (await login(client, employee.email, "wrong-password")).status_code == 401
-    locked = await login(client, employee.email, PASSWORD)  # even the right password is refused
-    assert locked.status_code == 423 and "locked" in locked.json()["detail"]
+    wrong = await login(client, employee.email, "wrong-password")
+    throttled = await login(client, employee.email, PASSWORD)  # even the right password is refused for now
+    assert throttled.status_code == 401 and throttled.json() == wrong.json()  # same text as any bad login
     assert (await client.patch(f"/users/{employee.id}", json={"unlock": True}, headers=auth(admin))).status_code == 200
     assert (await login(client, employee.email, PASSWORD)).status_code == 200
+
+
+async def test_attacker_cannot_lock_the_real_user_out(client, employee):
+    attacker = AsyncClient(
+        transport=ASGITransport(app=fastapi_app, client=("203.0.113.9", 4000)), base_url="http://test"
+    )
+    async with attacker:
+        for _ in range(8):
+            await login(attacker, employee.email, "guess")
+        assert (await login(attacker, employee.email, PASSWORD)).status_code == 401  # attacker's own IP: throttled
+    assert (await login(client, employee.email, PASSWORD)).status_code == 200  # the owner is not affected
+
+
+async def test_throttling_looks_identical_for_unknown_emails(client, employee):
+    real, fake = [], []
+    for _ in range(7):
+        real.append(await login(client, employee.email, "wrong-password"))
+        fake.append(await login(client, "nobody@example.com", "wrong-password"))
+    assert {(r.status_code, r.json()["detail"]) for r in real + fake} == {(401, "Incorrect email or password")}
+
+
+async def test_unknown_email_still_runs_a_password_check(client, monkeypatch):
+    calls = []
+    real_verify = user_service.verify_password
+
+    def spy(plain, hashed):
+        calls.append(hashed)
+        return real_verify(plain, hashed)
+
+    monkeypatch.setattr(user_service, "verify_password", spy)
+    assert (await login(client, "ghost@example.com", "whatever1")).status_code == 401
+    assert len(calls) == 1 and calls[0].startswith("$2")  # compared against a dummy bcrypt hash (no timing leak)
 
 
 async def test_failure_counter_resets_after_success(client, employee):
@@ -130,7 +165,24 @@ async def test_failure_counter_resets_after_success(client, employee):
         await login(client, employee.email, "wrong-password")
     assert (await login(client, employee.email, PASSWORD)).status_code == 200
     for _ in range(3):
-        assert (await login(client, employee.email, "wrong-password")).status_code == 401  # not locked
+        assert (await login(client, employee.email, "wrong-password")).status_code == 401
+    assert (await login(client, employee.email, PASSWORD)).status_code == 200  # 3 + 3 never counted as 6
+
+
+async def test_old_failures_expire_and_stale_rows_are_pruned(client, employee, session_factory):
+    from sqlalchemy import select, update
+
+    from app.models import LoginAttempt
+
+    for _ in range(4):
+        await login(client, employee.email, "wrong-password")
+    async with session_factory() as s:  # age the counter beyond the window
+        await s.execute(update(LoginAttempt).values(updated_at=utcnow() - timedelta(hours=1)))
+        await s.commit()
+    assert (await login(client, employee.email, "wrong-password")).status_code == 401  # would be the 5th, now the 1st
+    assert (await login(client, employee.email, PASSWORD)).status_code == 200
+    async with session_factory() as s:
+        assert (await s.scalars(select(LoginAttempt))).all() == []
 
 
 async def test_change_password(client, employee):

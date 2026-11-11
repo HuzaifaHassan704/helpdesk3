@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     RATE_LIMIT_REGISTER: str = "10/hour"
     RATE_LIMIT_CREATE_TICKET: str = "30/minute"
 
-    # --- account lockout ---
+    # --- login throttling (per email + client IP; see LoginAttempt) ---
     LOGIN_MAX_ATTEMPTS: int = 5
     LOCKOUT_MINUTES: int = 15
 

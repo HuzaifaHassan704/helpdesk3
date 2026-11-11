@@ -235,7 +235,7 @@ Changes apply immediately and are written to the audit log. Built-in keys (seede
 * **SLA due dates:** each ticket gets `due_at` from its priority (settings `sla_hours_urgent|high|medium|low`, default 4/8/24/72 h); `is_overdue` is flagged on tickets and counted on the dashboard.
 * **Auto-assign:** setting `auto_assign_on_create=true` gives new tickets to the active agent with the fewest Open/In Progress tickets.
 * **Email notifications:** assignment and status changes email the person concerned. Set `SMTP_HOST` (and `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`) in `.env`; without it emails are only written to the log.
-* **Accounts:** `POST /users/me/password` (also the **Password** button). After `LOGIN_MAX_ATTEMPTS` (5) failed logins an account is locked for `LOCKOUT_MINUTES` (15) and login returns `423`; an admin can unlock it with `PATCH /users/{id}` `{"unlock": true}`.
+* **Accounts:** `POST /users/me/password` (also the **Password** button). After `LOGIN_MAX_ATTEMPTS` (5) failed logins from one IP against one email, that IP/email pair is refused for `LOCKOUT_MINUTES` (15). Other IPs, including the real owner, are not affected. Unknown emails are throttled the same way and every failure is the same `401 Incorrect email or password`, so nothing reveals which accounts exist (bcrypt also runs for unknown emails, so timing doesn't either). Emails are stored only as a SHA-256 hash in `login_attempts`. An admin can clear the counters with `PATCH /users/{id}` `{"unlock": true}`.
 * **Reporting & UI:** `GET /tickets/export.csv` (agents/admins, honours the filters, formula-injection safe, **CSV** button) and a light/dark/auto theme switch.
 
 ## Layout

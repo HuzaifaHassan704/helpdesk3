@@ -50,4 +50,4 @@ async def test_other_endpoints_not_limited(client, employee, rate_limiting):
 async def test_limiter_disabled_by_default(client, employee):
     bad = {"username": employee.email, "password": "wrong-password"}
     codes = {(await client.post("/auth/login", data=bad)).status_code for _ in range(8)}
-    assert 429 not in codes  # (after 5 failures the account lockout answers 423 instead)
+    assert 429 not in codes  # (the per-email login throttle just keeps answering 401)
