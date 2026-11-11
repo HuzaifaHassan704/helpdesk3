@@ -48,3 +48,14 @@ def test_single_head(alembic_cfg):
 
     cfg, _ = alembic_cfg
     assert len(ScriptDirectory.from_config(cfg).get_heads()) == 1
+
+
+def test_builtin_settings_are_seeded(alembic_cfg):
+    cfg, db_file = alembic_cfg
+    command.upgrade(cfg, "head")
+    con = sqlite3.connect(db_file)
+    try:
+        keys = {r[0] for r in con.execute("SELECT key FROM system_settings")}
+    finally:
+        con.close()
+    assert {"auto_assign_on_create", "sla_hours_urgent", "sla_hours_high", "sla_hours_medium", "sla_hours_low"} <= keys

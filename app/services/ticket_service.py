@@ -35,7 +35,9 @@ def is_overdue(ticket: Ticket) -> bool:
 
 
 async def _sla_hours(db: AsyncSession, priority: TicketPriority) -> int:
-    return max(await settings_service.get_int(db, f"sla_hours_{priority.value}"), 0)
+    # clamped so a bad stored value can never overflow the date arithmetic
+    hours = await settings_service.get_int(db, f"sla_hours_{priority.value}")
+    return min(max(hours, 0), settings_service.SLA_MAX_HOURS)
 
 
 async def _least_loaded_agent(db: AsyncSession) -> User | None:

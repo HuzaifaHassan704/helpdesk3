@@ -21,6 +21,58 @@ DEFAULTS: dict[str, str] = {
 }
 
 
+def _bool(value: str) -> str:
+    v = value.strip().lower()
+    if v not in {"true", "false"}:
+        raise ValueError("must be exactly 'true' or 'false'")
+    return v
+
+
+def _int_between(low: int, high: int):
+    def check(value: str) -> str:
+        try:
+            n = int(value.strip())
+        except ValueError:
+            raise ValueError("must be a whole number") from None
+        if not low <= n <= high:
+            raise ValueError(f"must be between {low} and {high}")
+        return str(n)
+
+    return check
+
+
+def _text(max_len: int):
+    def check(value: str) -> str:
+        v = value.strip()
+        if not v or len(v) > max_len:
+            raise ValueError(f"must be 1-{max_len} characters")
+        return v
+
+    return check
+
+
+SLA_MAX_HOURS = 8760  # one year
+# Validators for the built-in keys. Custom keys (anything not listed) are stored as free text.
+VALIDATORS = {
+    "company_name": _text(100),
+    "max_open_tickets_per_employee": _int_between(1, 10_000),
+    "allow_employee_registration": _bool,
+    "auto_assign_on_create": _bool,
+    **{f"sla_hours_{p}": _int_between(1, SLA_MAX_HOURS) for p in ("urgent", "high", "medium", "low")},
+}
+
+
+def validate_value(key: str, value: str) -> str:
+    """Returns the normalised value for a built-in key, or raises HTTP 422."""
+    check = VALIDATORS.get(key)
+    if check is None:
+        return value
+    try:
+        return check(value)
+    except ValueError as exc:
+        raise HTTPException(422, f"Invalid value for '{key}': {exc}") from None
+
+
 async def get_value(db: AsyncSession, key: str) -> str:
     row = await db.get(SystemSetting, key)
     return row.value if row else DEFAULTS[key]
@@ -51,7 +103,8 @@ async def get_or_404(db: AsyncSession, key: str) -> SystemSetting:
 async def create(db: AsyncSession, data: SettingCreate, admin: User) -> SystemSetting:
     if await db.get(SystemSetting, data.key):
         raise HTTPException(status.HTTP_409_CONFLICT, "Setting already exists")
-    row = SystemSetting(key=data.key, value=data.value, description=data.description, updated_by_id=admin.id)
+    value = validate_value(data.key, data.value)
+    row = SystemSetting(key=data.key, value=value, description=data.description, updated_by_id=admin.id)
     db.add(row)
     await db.commit()
     await db.refresh(row)
@@ -60,7 +113,10 @@ async def create(db: AsyncSession, data: SettingCreate, admin: User) -> SystemSe
 
 
 async def update(db: AsyncSession, row: SystemSetting, data: SettingUpdate, admin: User) -> SystemSetting:
-    for field, value in data.model_dump(exclude_unset=True).items():
+    changes = data.model_dump(exclude_unset=True)
+    if "value" in changes:
+        changes["value"] = validate_value(row.key, changes["value"])
+    for field, value in changes.items():
         setattr(row, field, value)
     row.updated_by_id = admin.id
     await db.commit()

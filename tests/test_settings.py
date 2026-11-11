@@ -81,3 +81,46 @@ async def test_bad_limit_value_falls_back_to_default(client, admin, employee, ma
         "/admin/settings/", json={"key": "max_open_tickets_per_employee", "value": "lots"}, headers=auth(admin)
     )
     await make_ticket(employee)  # falls back to the default of 20, so this is allowed
+
+
+async def test_builtin_settings_are_validated_on_create_and_update(client, admin):
+    h = auth(admin)
+    bad_creates = [
+        ("sla_hours_medium", "100000000"),  # used to crash every new medium ticket
+        ("sla_hours_low", "0"),
+        ("sla_hours_high", "abc"),
+        ("allow_employee_registration", "ture"),  # used to silently close sign-up
+        ("auto_assign_on_create", "yes"),
+        ("max_open_tickets_per_employee", "-3"),
+        ("company_name", "x" * 101),
+    ]
+    for key, value in bad_creates:
+        r = await client.post("/admin/settings/", json={"key": key, "value": value}, headers=h)
+        assert r.status_code == 422, (key, value, r.text)
+        assert key in r.json()["detail"]
+
+    r = await client.post("/admin/settings/", json={"key": "sla_hours_medium", "value": " 48 "}, headers=h)
+    assert r.status_code == 201 and r.json()["value"] == "48"  # stored normalised
+    for value in ("100000000", "8761", "1.5", "soon"):
+        assert (
+            await client.patch("/admin/settings/sla_hours_medium", json={"value": value}, headers=h)
+        ).status_code == 422
+    assert (await client.get("/admin/settings/sla_hours_medium", headers=h)).json()["value"] == "48"
+
+    r = await client.post("/admin/settings/", json={"key": "allow_employee_registration", "value": "FALSE"}, headers=h)
+    assert r.status_code == 201 and r.json()["value"] == "false"
+    # custom keys stay free text
+    assert (
+        await client.post("/admin/settings/", json={"key": "footer", "value": "anything"}, headers=h)
+    ).status_code == 201
+
+
+async def test_bad_stored_sla_value_cannot_break_ticket_creation(client, employee, session_factory):
+    """Defence in depth: even a value that bypassed validation (old data, direct SQL) is clamped."""
+    from app.models import SystemSetting
+
+    async with session_factory() as s:
+        s.add(SystemSetting(key="sla_hours_medium", value="100000000"))
+        await s.commit()
+    r = await client.post("/tickets/", json={"title": "Still works", "description": "x"}, headers=auth(employee))
+    assert r.status_code == 201

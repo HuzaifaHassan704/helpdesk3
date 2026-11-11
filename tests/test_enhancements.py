@@ -1,9 +1,12 @@
 import csv
 import io
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import update
 
+from app.models import Ticket
+from app.models.base import utcnow
 from app.services import notification_service
 from tests.conftest import PASSWORD, auth
 
@@ -48,9 +51,11 @@ async def test_due_date_follows_priority_and_updates(client, employee, agent, ma
     assert 71.9 < hours_from_now(r.json()["due_at"]) < 72.1
 
 
-async def test_overdue_flag_and_dashboard(client, admin, employee, agent, make_ticket):
-    await setting(client, admin, "sla_hours_high", "0")
+async def test_overdue_flag_and_dashboard(client, employee, agent, make_ticket, session_factory):
     t = await make_ticket(employee, priority="high")
+    async with session_factory() as s:  # push the deadline into the past (the SLA setting itself must be >= 1 hour)
+        await s.execute(update(Ticket).where(Ticket.id == t["id"]).values(due_at=utcnow() - timedelta(hours=1)))
+        await s.commit()
     assert (await client.get(f"/tickets/{t['id']}", headers=auth(agent))).json()["is_overdue"] is True
     assert (await client.get("/dashboard/stats", headers=auth(agent))).json()["overdue_tickets"] == 1
     for step in ("in_progress", "resolved"):
