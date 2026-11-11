@@ -110,6 +110,7 @@ async def change_password(db: AsyncSession, user: User, current: str, new: str) 
     if current == new:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "New password must differ from the current one")
     user.hashed_password = hash_password(new)
+    user.token_version += 1  # signs out every other session
     await clear_login_failures(db, user.email)
     await db.commit()
     logger.info("password_changed", user_id=user.id)
@@ -136,6 +137,7 @@ async def update_user(db: AsyncSession, user: User, data: UserUpdate, acting: Us
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Admins cannot change their own role or active state")
     if "password" in changes:
         user.hashed_password = hash_password(changes.pop("password"))
+        user.token_version += 1
     for field, value in changes.items():
         setattr(user, field, value)
     await db.commit()

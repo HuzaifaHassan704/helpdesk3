@@ -44,4 +44,4 @@ async def login(request: Request, form: Annotated[OAuth2PasswordRequestForm, Dep
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Account is deactivated")
     logger.info("login_succeeded", user_id=user.id)
-    return Token(access_token=create_access_token(user.id))
+    return Token(access_token=create_access_token(user.id, token_version=user.token_version))

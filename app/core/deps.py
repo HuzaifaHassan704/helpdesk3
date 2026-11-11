@@ -29,8 +29,8 @@ async def _user_from_token(token: str, db: AsyncSession) -> User:
     except (jwt.PyJWTError, KeyError, ValueError):
         raise _credentials_error from None
     user = await db.get(User, user_id)
-    if user is None or not user.is_active:
-        raise _credentials_error
+    if user is None or not user.is_active or payload.get("tv", 0) != user.token_version:
+        raise _credentials_error  # unknown user, deactivated, or issued before the last password change
     structlog.contextvars.bind_contextvars(user_id=user.id, user_role=user.role.value)
     return user
 

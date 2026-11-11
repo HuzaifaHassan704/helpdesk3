@@ -174,7 +174,7 @@ function openPassword() {
   <div class="acts"><button type="button" data-a="x">Cancel</button><button class="primary">Change password</button></div></form>`);
   $('#pf').onsubmit = async e => {
     e.preventDefault();
-    try { await api('/users/me/password', { method: 'POST', json: Object.fromEntries(new FormData(e.target)) }); closeModal(); toast('Password changed'); }
+    try { await api('/users/me/password', { method: 'POST', json: Object.fromEntries(new FormData(e.target)) }); logout(); toast('Password changed. Please sign in again.'); }
     catch (x) { toast(x.message, 1); }
   };
 }

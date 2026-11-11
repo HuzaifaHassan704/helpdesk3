@@ -224,3 +224,25 @@ async def test_csv_export(client, employee, agent, make_ticket):
         csv.reader(io.StringIO((await client.get("/tickets/export.csv?status=closed", headers=auth(agent))).text))
     )
     assert len(only_closed) == 1  # header only
+
+
+# ---------- token invalidation ----------
+async def test_password_change_invalidates_old_tokens(client, employee):
+    old = auth(employee)
+    assert (await client.get("/users/me", headers=old)).status_code == 200
+    r = await client.post(
+        "/users/me/password", json={"current_password": PASSWORD, "new_password": "NewPassword1"}, headers=old
+    )
+    assert r.status_code == 204
+    assert (await client.get("/users/me", headers=old)).status_code == 401  # old JWT no longer works
+    fresh = await login(client, employee.email, "NewPassword1")
+    token = {"Authorization": f"Bearer {fresh.json()['access_token']}"}
+    assert (await client.get("/users/me", headers=token)).status_code == 200
+
+
+async def test_admin_password_reset_invalidates_old_tokens(client, employee, admin):
+    old = auth(employee)
+    r = await client.patch(f"/users/{employee.id}", json={"password": "ResetPassword1"}, headers=auth(admin))
+    assert r.status_code == 200
+    assert (await client.get("/users/me", headers=old)).status_code == 401
+    assert (await login(client, employee.email, "ResetPassword1")).status_code == 200

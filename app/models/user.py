@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Enum, String
+from sqlalchemy import Boolean, Enum, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -24,6 +24,8 @@ class User(TimestampMixin, Base):
         index=True,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Bumped on every password change/reset; access tokens carry it, so older tokens stop working at once.
+    token_version: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
 
     created_tickets: Mapped[list["Ticket"]] = relationship(back_populates="creator", foreign_keys="Ticket.creator_id")
     assigned_tickets: Mapped[list["Ticket"]] = relationship(
