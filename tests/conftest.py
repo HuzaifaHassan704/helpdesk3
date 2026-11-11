@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool, StaticPool
 
 import app.models  # noqa: F401
-from app.core.database import Base, get_db
+from app.core.database import Base, enable_sqlite_foreign_keys, get_db
 from app.core.security import create_access_token, hash_password
 from app.main import app as fastapi_app
 from app.models import User, UserRole
@@ -33,6 +33,7 @@ async def session_factory():
     """Fresh schema for every test: in-memory SQLite by default, PostgreSQL if TEST_DATABASE_URL is set."""
     if IS_SQLITE:
         engine = create_async_engine(TEST_DB_URL, poolclass=StaticPool, connect_args={"check_same_thread": False})
+        enable_sqlite_foreign_keys(engine)  # same behaviour as production (PostgreSQL enforces FKs)
     else:
         engine = create_async_engine(TEST_DB_URL, poolclass=NullPool)
     async with engine.begin() as conn:

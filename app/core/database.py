@@ -1,6 +1,6 @@
 from collections.abc import AsyncGenerator
 
-from sqlalchemy import MetaData
+from sqlalchemy import MetaData, event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -30,7 +30,24 @@ if settings.DATABASE_URL.startswith("postgresql"):
         max_overflow=settings.DB_MAX_OVERFLOW,
     )
 
+
+def enable_sqlite_foreign_keys(engine) -> None:
+    """SQLite ignores FOREIGN KEY constraints unless this pragma is set on every connection.
+
+    Without it the ondelete rules (CASCADE / SET NULL / RESTRICT) only apply on PostgreSQL.
+    """
+    if engine.dialect.name != "sqlite":
+        return
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _fk_on(dbapi_connection, _record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+
 engine = create_async_engine(settings.DATABASE_URL, **_engine_kwargs)
+enable_sqlite_foreign_keys(engine)
 
 # expire_on_commit=False avoids lazy-load (MissingGreenlet) errors in async code
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)

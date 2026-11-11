@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.security import hash_password, verify_password
-from app.models import Ticket, User
+from app.models import Comment, Ticket, User
 from app.models.base import utcnow
 from app.schemas.user import UserCreate, UserUpdate
 
@@ -103,10 +103,11 @@ async def delete_user(db: AsyncSession, user: User, acting: User) -> None:
     if user.id == acting.id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "You cannot delete yourself")
     created = await db.scalar(select(func.count(Ticket.id)).where(Ticket.creator_id == user.id))
-    if created:
+    commented = await db.scalar(select(func.count(Comment.id)).where(Comment.author_id == user.id))
+    if created or commented:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            "User owns tickets; deactivate the account instead (PATCH is_active=false)",
+            "User has tickets or comments; deactivate the account instead (PATCH is_active=false)",
         )
     await db.execute(update(Ticket).where(Ticket.assignee_id == user.id).values(assignee_id=None))
     await db.execute(delete(User).where(User.id == user.id))

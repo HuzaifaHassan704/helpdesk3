@@ -1,4 +1,4 @@
-from tests.conftest import auth
+from tests.conftest import IS_SQLITE, auth
 
 
 async def test_employee_and_agent_blocked_from_admin_user_routes(client, employee, agent, admin):
@@ -129,3 +129,27 @@ async def test_comments_and_internal_notes(client, employee, employee2, agent, m
     assert len((await client.get(url, headers=auth(employee))).json()) == 2  # internal hidden
     assert len((await client.get(url, headers=auth(agent))).json()) == 3
     assert (await client.get(url, headers=auth(employee2))).status_code == 404
+
+
+async def test_cannot_delete_user_who_only_commented(client, admin, employee, agent, make_ticket):
+    t = await make_ticket(employee)
+    r = await client.post(f"/tickets/{t['id']}/comments", json={"body": "looking into it"}, headers=auth(agent))
+    assert r.status_code == 201
+    r = await client.delete(f"/users/{agent.id}", headers=auth(admin))
+    assert r.status_code == 409 and "deactivate" in r.json()["detail"]
+    assert (await client.get(f"/users/{agent.id}", headers=auth(admin))).status_code == 200
+
+
+async def test_sqlite_foreign_keys_are_enforced(session_factory):
+    """The test engine (and the app engine) turn on PRAGMA foreign_keys, so ondelete rules apply locally."""
+    import pytest
+    from sqlalchemy.exc import IntegrityError
+
+    from app.models import Comment
+
+    if not IS_SQLITE:
+        pytest.skip("SQLite-specific check")
+    async with session_factory() as s:
+        s.add(Comment(ticket_id=999, author_id=999, body="orphan"))
+        with pytest.raises(IntegrityError):
+            await s.commit()
