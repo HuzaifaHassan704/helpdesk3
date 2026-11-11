@@ -100,8 +100,8 @@ async function loadTickets() {
   ['status', 'priority', 'search'].forEach(k => q[k] && p.set(k, q[k]));
   try {
     const d = await api('/tickets/?' + p);
-    $('#list').innerHTML = (d.items.length ? `<table><thead><tr><th>#</th><th>Title</th><th>Status</th><th>Priority</th><th>Assignee</th><th>Created</th></tr></thead><tbody>${d.items.map(t =>
-      `<tr data-id="${t.id}"><td>${t.id}</td><td>${esc(t.title)}</td><td>${badge('s', t.status)}${t.is_overdue ? ' <span class="b p-urgent">overdue</span>' : ''}</td><td>${badge('p', t.priority)}</td><td>${t.assignee_id ? (t.assignee_id === S.me.id ? 'You' : '#' + t.assignee_id) : '—'}</td><td>${dt(t.created_at)}</td></tr>`).join('')}</tbody></table>` : '<p class="empty">No tickets found.</p>') +
+    $('#list').innerHTML = (d.items.length ? `<div class="tw"><table><thead><tr><th>#</th><th>Title</th><th>Status</th><th>Priority</th><th>Assignee</th><th>Created</th></tr></thead><tbody>${d.items.map(t =>
+      `<tr data-id="${t.id}"><td>${t.id}</td><td>${esc(t.title)}</td><td>${badge('s', t.status)}${t.is_overdue ? ' <span class="b p-urgent">overdue</span>' : ''}</td><td>${badge('p', t.priority)}</td><td>${t.assignee_id ? (t.assignee_id === S.me.id ? 'You' : '#' + t.assignee_id) : '—'}</td><td>${dt(t.created_at)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="empty">No tickets found.</p>') +
       `<div class="pg"><button data-p="-1" ${d.has_prev ? '' : 'disabled'}>← Prev</button><span>Page ${d.page} of ${Math.max(d.pages, 1)} · ${d.total} ticket${d.total === 1 ? '' : 's'}</span><button data-p="1" ${d.has_next ? '' : 'disabled'}>Next →</button></div>`;
   } catch (x) { toast(x.message, 1); }
 }
@@ -141,7 +141,7 @@ async function openTicket(id) {
   ${staff() ? '<div class="bar"><button data-a="me">Assign to me</button><input id="fa" type="number" min="1" placeholder="Agent user ID"><button data-a="as">Assign</button></div>' : ''}
   <h3>Comments</h3>${cs.length ? cs.map(c => `<div class="c${c.is_internal ? ' int' : ''}"><small>#${c.author_id}${c.author_id === S.me.id ? ' (you)' : ''} · ${dt(c.created_at)}${c.is_internal ? ' · internal note' : ''}</small><p>${esc(c.body)}</p></div>`).join('') : '<p class="empty">No comments yet.</p>'}
   <h3>History</h3><ul class="hist">${hist.map(h => `<li><small>${dt(h.created_at)} · ${h.actor_id ? '#' + h.actor_id : 'system'}</small> ${esc(L(h.event))}${h.detail ? ': ' + esc(h.detail) : ''}</li>`).join('')}</ul>
-  <form id="cf"><textarea name="body" rows="2" placeholder="Write a comment…" required></textarea><div class="acts">${staff() ? '<label class="chk"><input type="checkbox" name="is_internal"> Internal note</label>' : ''}<button class="primary">Post comment</button></div></form>`);
+  ${lock ? '<p class="empty">This ticket is closed, so comments are turned off.</p>' : `<form id="cf"><textarea name="body" rows="2" placeholder="Write a comment…" required></textarea><div class="acts">${staff() ? '<label class="chk"><input type="checkbox" name="is_internal"> Internal note</label>' : ''}<button class="primary">Post comment</button></div></form>`}`);
   const run = async (fn, msg) => { try { await fn(); toast(msg); openTicket(id); if ($('#list')) loadTickets(); } catch (x) { toast(x.message, 1); } };
   const patch = j => api('/tickets/' + id, { method: 'PATCH', json: j });
   const assign = j => api(`/tickets/${id}/assign`, { method: 'POST', json: j });
@@ -161,7 +161,7 @@ async function openTicket(id) {
     if (a === 'del' && confirm('Delete this ticket permanently?'))
       api('/tickets/' + id, { method: 'DELETE' }).then(() => { closeModal(); toast('Ticket deleted'); loadTickets(); }).catch(x => toast(x.message, 1));
   };
-  $('#cf').onsubmit = e => {
+  if ($('#cf')) $('#cf').onsubmit = e => {
     e.preventDefault(); const f = new FormData(e.target);
     run(() => api(`/tickets/${id}/comments`, { method: 'POST', json: { body: f.get('body'), is_internal: !!f.get('is_internal') } }), 'Comment added');
   };
@@ -208,8 +208,8 @@ async function viewUsers() {
     const d = await api('/users/?limit=100');
     $('#main').innerHTML = `<form id="uf" class="bar"><input name="full_name" placeholder="Full name" required><input name="email" type="email" placeholder="Email" required>
     <input name="password" type="password" placeholder="Password (8+ chars)" minlength="8" required><select name="role">${opts(RL, 'agent')}</select><button class="primary">Add user</button></form>
-    <table><thead><tr><th>#</th><th>Name</th><th>Email</th><th>Role</th><th>Active</th></tr></thead><tbody>${d.items.map(u => { const me = u.id === S.me.id; return `<tr><td>${u.id}</td><td>${esc(u.full_name)}</td><td>${esc(u.email)}</td>
-    <td><select data-u="${u.id}" data-f="role" ${me ? 'disabled' : ''}>${opts(RL, u.role)}</select></td><td><input type="checkbox" data-u="${u.id}" data-f="is_active" ${u.is_active ? 'checked' : ''} ${me ? 'disabled' : ''}></td></tr>`; }).join('')}</tbody></table>
+    <div class="tw"><table><thead><tr><th>#</th><th>Name</th><th>Email</th><th>Role</th><th>Active</th></tr></thead><tbody>${d.items.map(u => { const me = u.id === S.me.id; return `<tr><td>${u.id}</td><td>${esc(u.full_name)}</td><td>${esc(u.email)}</td>
+    <td><select data-u="${u.id}" data-f="role" ${me ? 'disabled' : ''}>${opts(RL, u.role)}</select></td><td><input type="checkbox" data-u="${u.id}" data-f="is_active" ${u.is_active ? 'checked' : ''} ${me ? 'disabled' : ''}></td></tr>`; }).join('')}</tbody></table></div>
     <p class="hint">Showing ${d.items.length} of ${d.total} users.</p>`;
     $('#uf').onsubmit = async e => {
       e.preventDefault();
@@ -230,9 +230,9 @@ async function viewSettings() {
     const d = await api('/admin/settings/');
     $('#main').innerHTML = `<p class="hint">Changes apply immediately. Examples: <code>company_name</code>, <code>allow_employee_registration</code> (true/false), <code>max_open_tickets_per_employee</code>, <code>auto_assign_on_create</code> (true/false), <code>sla_hours_urgent|high|medium|low</code>.</p>
     <form id="sf" class="bar"><input name="key" placeholder="key (a-z, 0-9, _ . -)" required pattern="[a-z0-9][a-z0-9_.\\-]*"><input name="value" placeholder="Value" required><input name="description" placeholder="Description (optional)"><button class="primary">Add setting</button></form>
-    <table><thead><tr><th>Key</th><th>Value</th><th>Description</th><th></th></tr></thead><tbody>${d.map(x => `<tr><td><code>${esc(x.key)}</code></td>
+    <div class="tw"><table><thead><tr><th>Key</th><th>Value</th><th>Description</th><th></th></tr></thead><tbody>${d.map(x => `<tr><td><code>${esc(x.key)}</code></td>
     <td><input data-k="${esc(x.key)}" value="${esc(x.value)}"></td><td>${esc(x.description || '')}</td>
-    <td><button data-sv="${esc(x.key)}">Save</button> <button class="danger" data-dl="${esc(x.key)}">Delete</button></td></tr>`).join('')}</tbody></table>`;
+    <td><button data-sv="${esc(x.key)}">Save</button> <button class="danger" data-dl="${esc(x.key)}">Delete</button></td></tr>`).join('')}</tbody></table></div>`;
     $('#sf').onsubmit = async e => {
       e.preventDefault(); const f = Object.fromEntries(new FormData(e.target)); if (!f.description) delete f.description;
       try { await api('/admin/settings/', { method: 'POST', json: f }); toast('Setting added'); viewSettings(); } catch (x) { toast(x.message, 1); }

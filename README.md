@@ -131,7 +131,7 @@ case-insensitive, `%`/`_` treated literally), `created_from`, `created_to` (ISO 
 ## 6. Tests, lint, coverage
 
 ```bash
-pytest                                              # 103 tests, in-memory SQLite, no services needed
+pytest                                              # 120 tests, in-memory SQLite, no services needed
 pytest --cov --cov-report=term-missing              # coverage (~95%)
 
 # the same suite against PostgreSQL (what CI does):

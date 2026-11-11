@@ -17,6 +17,8 @@ label{display:block;margin:10px 0;font-size:13px;color:var(--mut)}
 label input,label select,label textarea{display:block;width:100%;margin-top:4px;color:var(--tx)}
 textarea{resize:vertical}
 .bar{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}.bar input[type=search],.bar input:not([type]){flex:1;min-width:180px}
+/* wide tables scroll inside their own box instead of widening the whole page on phones */
+.tw{overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch}
 table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--br);border-radius:10px;overflow:hidden}
 th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--br)}th{font-size:12px;color:var(--mut);text-transform:uppercase}
 tr[data-id]{cursor:pointer}tr[data-id]:hover{background:var(--bg)}tr:last-child td{border-bottom:0}
