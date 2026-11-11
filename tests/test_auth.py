@@ -74,3 +74,31 @@ async def test_deactivated_user_token_rejected(client, admin, employee):
     r = await client.patch(f"/users/{employee.id}", json={"is_active": False}, headers=auth(admin))
     assert r.status_code == 200
     assert (await client.get("/users/me", headers=auth(employee))).status_code == 401
+
+
+async def test_passwords_over_bcrypt_limit_are_rejected(client, admin, employee):
+    """bcrypt ignores bytes past 72, so longer passwords are refused instead of silently truncated."""
+    ok = "A" * 72
+    r = await client.post("/auth/register", json={"email": "a@example.com", "full_name": "A", "password": ok})
+    assert r.status_code == 201
+    too_long = {"email": "b@example.com", "full_name": "B", "password": "A" * 73}
+    assert (await client.post("/auth/register", json=too_long)).status_code == 422
+    # 25 emoji = 25 characters but 100 bytes
+    multibyte = {"email": "c@example.com", "full_name": "C", "password": "\U0001f600" * 25}
+    assert (await client.post("/auth/register", json=multibyte)).status_code == 422
+    # the same limit applies to password changes and admin resets
+    url = "/users/me/password"
+    r = await client.post(url, json={"current_password": PASSWORD, "new_password": "B" * 73}, headers=auth(employee))
+    assert r.status_code == 422
+    r = await client.patch(f"/users/{employee.id}", json={"password": "B" * 73}, headers=auth(admin))
+    assert r.status_code == 422
+
+
+async def test_suffix_beyond_72_bytes_no_longer_logs_in(client):
+    base = "A" * 72
+    await client.post("/auth/register", json={"email": "a@example.com", "full_name": "A", "password": base})
+    good = await client.post("/auth/login", data={"username": "a@example.com", "password": base})
+    assert good.status_code == 200
+    for attempt in (base + "completely-different", base + "x"):  # used to be accepted (silent truncation)
+        r = await client.post("/auth/login", data={"username": "a@example.com", "password": attempt})
+        assert r.status_code == 401
