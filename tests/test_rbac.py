@@ -179,3 +179,16 @@ async def test_deleting_an_agent_reopens_their_in_progress_tickets(client, admin
     assert (await client.delete(f"/users/{agent.id}", headers=h)).status_code == 204
     after = (await client.get(f"/tickets/{t['id']}", headers=h)).json()
     assert after["assignee_id"] is None and after["status"] == "open"
+
+
+async def test_deactivating_an_agent_releases_their_open_tickets(client, admin, employee, agent, make_ticket):
+    h = auth(admin)
+    t = await make_ticket(employee)
+    await client.post(f"/tickets/{t['id']}/assign", json={"assignee_id": agent.id}, headers=h)
+    assert (await client.patch(f"/users/{agent.id}", json={"is_active": False}, headers=h)).status_code == 200
+    after = (await client.get(f"/tickets/{t['id']}", headers=h)).json()
+    assert after["assignee_id"] is None and after["status"] == "open"
+    events = (await client.get(f"/tickets/{t['id']}/history", headers=h)).json()
+    assert events[-1]["event"] == "unassigned" and "deactivated" in events[-1]["detail"]
+    # re-activating later does not fire the release again
+    assert (await client.patch(f"/users/{agent.id}", json={"is_active": True}, headers=h)).status_code == 200

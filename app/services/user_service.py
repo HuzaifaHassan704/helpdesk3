@@ -161,6 +161,9 @@ async def update_user(db: AsyncSession, user: User, data: UserUpdate, acting: Us
     if changes.get("role") == UserRole.EMPLOYEE and user.role != UserRole.EMPLOYEE:
         # an employee can neither open nor work on tickets assigned to them, so hand those back to the queue
         await release_tickets(db, user, acting, "assignee is no longer an agent")
+    if changes.get("is_active") is False and user.is_active:
+        # a deactivated account cannot sign in, so its open work would otherwise sit untouched
+        await release_tickets(db, user, acting, "assignee account was deactivated")
     for field, value in changes.items():
         setattr(user, field, value)
     await db.commit()
