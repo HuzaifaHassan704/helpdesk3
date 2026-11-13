@@ -89,8 +89,10 @@ Log from your own code with `from app.core.logging import get_logger; logger = g
 
 Exceeded limits return `429 {"detail": "Rate limit exceeded: ..."}`. The default store is in-process memory, which is
 **per worker**. With more than one worker or replica set `RATE_LIMIT_STORAGE_URI=redis://host:6379/0` (compose does this).
-Behind a reverse proxy, run uvicorn with `--proxy-headers` and `FORWARDED_ALLOW_IPS=<proxy ip>` so the real client IP
-is used rather than the proxy's.
+**Behind a reverse proxy (nginx, a load balancer, another container) you must set `FORWARDED_ALLOW_IPS=<proxy ip>`**
+(compose passes it through; use `*` only if the api port is reachable solely from the proxy). Uvicorn trusts
+`X-Forwarded-For` only from `127.0.0.1` by default, so without it every client appears to come from the proxy and the
+per-IP rate limits and login throttle would apply to everyone at once (effectively per account again).
 
 **Headers** on every response: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`,
 `Permissions-Policy`, `Cross-Origin-Resource-Policy`, `Content-Security-Policy: default-src 'none'`, `Cache-Control: no-store`,
@@ -131,7 +133,7 @@ case-insensitive, `%`/`_` treated literally), `created_from`, `created_to` (ISO 
 ## 6. Tests, lint, coverage
 
 ```bash
-pytest                                              # 120 tests, in-memory SQLite, no services needed
+pytest                                              # 122 tests, in-memory SQLite, no services needed
 pytest --cov --cov-report=term-missing              # coverage (~95%)
 
 # the same suite against PostgreSQL (what CI does):
@@ -235,7 +237,7 @@ Changes apply immediately and are written to the audit log. Built-in keys (seede
 * **SLA due dates:** each ticket gets `due_at` from its priority (settings `sla_hours_urgent|high|medium|low`, default 4/8/24/72 h); `is_overdue` is flagged on tickets and counted on the dashboard.
 * **Auto-assign:** setting `auto_assign_on_create=true` gives new tickets to the active agent with the fewest Open/In Progress tickets.
 * **Email notifications:** assignment and status changes email the person concerned. Set `SMTP_HOST` (and `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`) in `.env`; without it emails are only written to the log.
-* **Accounts:** `POST /users/me/password` (also the **Password** button). After `LOGIN_MAX_ATTEMPTS` (5) failed logins from one IP against one email, that IP/email pair is refused for `LOCKOUT_MINUTES` (15). Other IPs, including the real owner, are not affected. Unknown emails are throttled the same way and every failure is the same `401 Incorrect email or password`, so nothing reveals which accounts exist (bcrypt also runs for unknown emails, so timing doesn't either). Emails are stored only as a SHA-256 hash in `login_attempts`. An admin can clear the counters with `PATCH /users/{id}` `{"unlock": true}`.
+* **Accounts:** `POST /users/me/password` (also the **Password** button). After `LOGIN_MAX_ATTEMPTS` (5) failed logins from one IP against one email, that IP/email pair is refused for `LOCKOUT_MINUTES` (15). Other IPs, including the real owner, are not affected. Unknown emails are throttled the same way and every failure is the same `401 Incorrect email or password`, so nothing reveals which accounts exist (bcrypt also runs for unknown emails, so timing doesn't either). Emails are stored only as a SHA-256 hash in `login_attempts`. Guessing spread over many IPs is caught by a softer per-account counter: after `ACCOUNT_FAILURE_ALERT` (50) failures for one email within `ACCOUNT_FAILURE_WINDOW_MINUTES` (60) a `account_under_attack` warning is logged (email hash prefix only) and later attempts are delayed by `ACCOUNT_FAILURE_DELAY_SECONDS`; it never locks the account, so it can't be used to lock the owner out. An admin can clear the counters with `PATCH /users/{id}` `{"unlock": true}`. Deactivating, demoting or deleting an agent returns their Open / In Progress tickets to the queue.
 * **Reporting & UI:** `GET /tickets/export.csv` (agents/admins, honours the filters, formula-injection safe, **CSV** button) and a light/dark/auto theme switch.
 
 ## Layout

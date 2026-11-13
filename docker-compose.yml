@@ -41,6 +41,9 @@ services:
       ENABLE_DOCS: ${ENABLE_DOCS:-false}
       LOG_JSON: "true"
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
+      # Put your reverse proxy's address here when one sits in front of the api (nginx, a load balancer...),
+      # otherwise every client looks like the proxy and the per-IP login throttle / rate limits act per account.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
     depends_on:
       db:
         condition: service_healthy

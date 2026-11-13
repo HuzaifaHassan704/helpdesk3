@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     # --- login throttling (per email + client IP; see LoginAttempt) ---
     LOGIN_MAX_ATTEMPTS: int = 5
     LOCKOUT_MINUTES: int = 15
+    # Soft limit across ALL IPs for one email (never locks anyone out): after this many failures within
+    # ACCOUNT_FAILURE_WINDOW_MINUTES a warning is logged and further attempts are slowed. 0 disables it.
+    ACCOUNT_FAILURE_ALERT: int = 50
+    ACCOUNT_FAILURE_WINDOW_MINUTES: int = 60
+    ACCOUNT_FAILURE_DELAY_SECONDS: float = 2.0
 
     # --- email notifications (empty SMTP_HOST = log only) ---
     SMTP_HOST: str = ""

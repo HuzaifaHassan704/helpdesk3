@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
@@ -40,6 +41,9 @@ logger = get_logger("app.users")
 INVALID_LOGIN = "Incorrect email or password"
 
 
+ALL_IPS = "*"  # pseudo-IP of the per-account row that counts failures from every address together
+
+
 def _aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
 
@@ -61,6 +65,31 @@ async def clear_login_failures(db: AsyncSession, email: str) -> None:
     )
 
 
+def _account_window() -> timedelta:
+    return timedelta(minutes=settings.ACCOUNT_FAILURE_WINDOW_MINUTES)
+
+
+async def _account_row(db: AsyncSession, key: str) -> LoginAttempt | None:
+    return await db.get(LoginAttempt, (key, ALL_IPS))
+
+
+async def _count_account_failure(db: AsyncSession, key: str, now: datetime) -> None:
+    """Counts failures for this email from every IP. It never locks the account (that would let anyone lock the
+    owner out); it only raises an alert and slows later attempts, see authenticate()."""
+    if settings.ACCOUNT_FAILURE_ALERT <= 0:
+        return
+    row = await _account_row(db, key)
+    if row is None:
+        row = LoginAttempt(email_hash=key, ip_address=ALL_IPS, failures=0)
+        db.add(row)
+    elif _aware(row.updated_at) < now - _account_window():
+        row.failures = 0
+    row.failures += 1
+    row.updated_at = now
+    if row.failures == settings.ACCOUNT_FAILURE_ALERT:  # once per window, not on every later failure
+        logger.warning("account_under_attack", email_hash=key[:12], failures=row.failures)
+
+
 async def _record_failure(db: AsyncSession, attempt: LoginAttempt | None, key: str, ip: str, now: datetime) -> None:
     window = timedelta(minutes=settings.LOCKOUT_MINUTES)
     if attempt is None:
@@ -73,11 +102,13 @@ async def _record_failure(db: AsyncSession, attempt: LoginAttempt | None, key: s
     if attempt.failures >= settings.LOGIN_MAX_ATTEMPTS:
         attempt.locked_until, attempt.failures = now + window, 0
         logger.warning("login_throttled", minutes=settings.LOCKOUT_MINUTES)
+    await _count_account_failure(db, key, now)
     await db.flush()
     # prune rows whose window has passed (their lock, if any, has expired too) so the table cannot grow unbounded
+    per_ip_expired = (LoginAttempt.ip_address != ALL_IPS) & (LoginAttempt.updated_at < now - window)
+    account_expired = (LoginAttempt.ip_address == ALL_IPS) & (LoginAttempt.updated_at < now - _account_window())
     await db.execute(
-        delete(LoginAttempt).where(LoginAttempt.updated_at < now - window),
-        execution_options={"synchronize_session": False},
+        delete(LoginAttempt).where(per_ip_expired | account_expired), execution_options={"synchronize_session": False}
     )
     await db.commit()
 
@@ -92,6 +123,13 @@ async def authenticate(db: AsyncSession, email: str, password: str, ip: str) -> 
     attempt = await db.get(LoginAttempt, (key, ip))
     if attempt and attempt.locked_until and _aware(attempt.locked_until) > now:
         return None
+    account = await _account_row(db, key) if settings.ACCOUNT_FAILURE_ALERT > 0 else None
+    if (
+        account
+        and account.failures >= settings.ACCOUNT_FAILURE_ALERT
+        and _aware(account.updated_at) >= now - _account_window()
+    ):
+        await asyncio.sleep(settings.ACCOUNT_FAILURE_DELAY_SECONDS)  # slows guessing spread over many IPs
     user = await get_by_email(db, email)
     # Always run bcrypt, even for unknown emails, so response time does not reveal which accounts exist.
     password_ok = verify_password(password, user.hashed_password if user else _dummy_hash())

@@ -177,12 +177,14 @@ async def test_old_failures_expire_and_stale_rows_are_pruned(client, employee, s
     for _ in range(4):
         await login(client, employee.email, "wrong-password")
     async with session_factory() as s:  # age the counter beyond the window
-        await s.execute(update(LoginAttempt).values(updated_at=utcnow() - timedelta(hours=1)))
+        await s.execute(update(LoginAttempt).values(updated_at=utcnow() - timedelta(hours=2)))
         await s.commit()
     assert (await login(client, employee.email, "wrong-password")).status_code == 401  # would be the 5th, now the 1st
     assert (await login(client, employee.email, PASSWORD)).status_code == 200
     async with session_factory() as s:
-        assert (await s.scalars(select(LoginAttempt))).all() == []
+        rows = (await s.scalars(select(LoginAttempt))).all()
+    # the per-IP row is gone after the successful login; only the account-wide counter (reset to 1) remains
+    assert [(r.ip_address, r.failures) for r in rows] == [("*", 1)]
 
 
 async def test_change_password(client, employee):
@@ -255,3 +257,34 @@ async def test_notification_log_has_user_id_not_email(caplog):
         await notification_service.notify("secret.person@example.com", "Subject", "body", user_id=42)
     text = " ".join(r.getMessage() for r in caplog.records)
     assert "secret.person@example.com" not in text and "42" in text
+
+
+async def test_guessing_spread_over_many_ips_raises_an_alert_and_slows_down_but_never_locks(
+    client, employee, monkeypatch, caplog
+):
+    import logging
+
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "ACCOUNT_FAILURE_ALERT", 4)
+    monkeypatch.setattr(settings, "ACCOUNT_FAILURE_DELAY_SECONDS", 1.5)
+    sleeps = []
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(user_service.asyncio, "sleep", fake_sleep)
+
+    with caplog.at_level(logging.WARNING):
+        for i in range(8):  # 8 different IPs, one failure each: no single IP ever reaches the per-IP limit
+            ip = f"203.0.113.{i + 10}"
+            async with AsyncClient(
+                transport=ASGITransport(app=fastapi_app, client=(ip, 5000)), base_url="http://t"
+            ) as c:
+                assert (await login(c, employee.email, "guess")).status_code == 401
+    text = " ".join(r.getMessage() for r in caplog.records)
+    assert text.count("account_under_attack") == 1  # logged once when the threshold is crossed
+    assert employee.email not in text
+    assert sleeps and set(sleeps) == {1.5}  # attempts after the threshold are delayed
+    # nobody is locked out: the owner still gets in (slowed, not blocked)
+    assert (await login(client, employee.email, PASSWORD)).status_code == 200
